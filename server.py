@@ -1,7 +1,7 @@
 """
 server.py — CNKI MCP 服务器
 
-FastMCP 入口，注册所有 CNKI 工具。
+MCPServer 入口，注册所有 CNKI 工具。
 启动命令：
   python server.py
 （pip 安装后亦可直接用 `cnki-mcp` 命令启动）
@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -30,7 +30,7 @@ from cnki.zotero import (
 )
 from cnki.pdf_meta import extract_pdf_metadata, compare_metadata
 
-mcp = FastMCP("cnki")
+mcp = MCPServer("cnki")
 
 PDF_DIR = os.getenv("PDF_DIR", str(Path(__file__).resolve().parent / "downloads"))
 
@@ -542,7 +542,7 @@ def main() -> None:
 
     def _cleanup():
         try:
-            asyncio.get_event_loop().run_until_complete(close_context())
+            asyncio.run(close_context())
         except Exception:
             pass
 
