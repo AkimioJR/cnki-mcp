@@ -9,7 +9,9 @@ Compatible with Claude Code, Codex, OpenClaw, Cursor, and any stdio MCP client.
 cnki-mcp/
 ├── server.py          # MCPServer entry point; all @mcp.tool() definitions (9 tools)
 ├── cnki/
-│   ├── browser.py     # Browser session management (Playwright async, cookie persistence)
+│   ├── browser.py     # Browser session management (Playwright async, cookie persistence,
+│   │                  #   cross-process profile isolation via flock + per-pid fallback,
+│   │                  #   orphan Chrome cleanup & launch retry)
 │   ├── search.py      # CNKI search: form interaction, multi-sort, dedup utilities
 │   ├── download.py    # PDF/CAJ download (click #pdfDown / #cajDown → download event)
 │   ├── zotero.py      # Zotero import (local connector port 23119 + cloud API fallback)

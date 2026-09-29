@@ -536,18 +536,55 @@ async def cnki_apply_metadata_updates(
 #  服务器入口
 # ─────────────────────────────────────────────────────────────
 
-def main() -> None:
-    """控制台入口（pip 安装后 `cnki-mcp` 命令调用）。"""
-    import atexit
+async def _serve() -> None:
+    """
+    运行 MCP stdio 服务，退出时确保浏览器被关闭、profile 锁被释放。
 
-    def _cleanup():
+    要点：
+    - 浏览器在服务自身的事件循环中创建，因此必须在**同一个循环**内关闭；
+      旧实现用 atexit + asyncio.run() 新建循环关闭，会因循环不匹配失败，
+      导致 Chrome 残留为孤儿进程、持有 profile 锁，下次启动即崩溃。
+    - 注册 SIGTERM/SIGINT 处理器：MCP 客户端被终止时也能触发正常清理，
+      而不是直接被杀掉留下孤儿 Chrome。
+    """
+    import signal
+
+    serve_task = asyncio.create_task(mcp.run_stdio_async())
+    loop = asyncio.get_running_loop()
+    handled: list = []
+
+    def _stop(signum: int) -> None:
+        if not serve_task.done():
+            serve_task.cancel()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
         try:
-            asyncio.run(close_context())
-        except Exception:
+            loop.add_signal_handler(sig, _stop, sig)
+            handled.append(sig)
+        except (NotImplementedError, RuntimeError, ValueError):
+            pass  # 平台不支持时退回默认行为
+
+    try:
+        await serve_task
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        pass
+    finally:
+        for sig in handled:
+            try:
+                loop.remove_signal_handler(sig)
+            except (NotImplementedError, RuntimeError, ValueError):
+                pass
+        try:
+            await close_context()
+        except BaseException:
             pass
 
-    atexit.register(_cleanup)
-    mcp.run(transport="stdio")
+
+def main() -> None:
+    """控制台入口（pip 安装后 `cnki-mcp` 命令调用）。"""
+    import anyio
+
+    anyio.run(_serve)
 
 
 if __name__ == "__main__":
