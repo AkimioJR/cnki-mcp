@@ -171,7 +171,7 @@ async def _extract_rows(page, max_count: int) -> List[Dict]:
                 pass
         return ""
 
-    papers = []
+    papers: list[dict] = []
 
     for row_sel in _ROW_SELECTORS:
         rows = await page.query_selector_all(row_sel)
