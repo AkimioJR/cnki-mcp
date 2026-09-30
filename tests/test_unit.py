@@ -6,6 +6,7 @@
 （需真实 CNKI/Zotero 的集成测试不在此文件，CI 仅跑本文件。）
 """
 
+import asyncio
 import os
 import subprocess
 from pathlib import Path
@@ -235,3 +236,59 @@ def test_claim_profile_conflict_falls_back_to_instance(tmp_path, monkeypatch):
         _fcntl.flock(fd, _fcntl.LOCK_UN)
         os.close(fd)
         browser_mod._release_profile_lock()
+
+
+# ─── get_context 崩溃自愈（IPC 探活） ─────────────────────────
+
+async def _async_return(value):
+    return value
+
+
+class _FakeCtx:
+    """模拟 BrowserContext：alive=False 时 cookies() 抛出（Chrome 已崩溃）。"""
+
+    def __init__(self, alive: bool):
+        self.alive = alive
+        self.closed = False
+
+    async def cookies(self):
+        if not self.alive:
+            raise RuntimeError("Target page, context or browser has been closed")
+        return []
+
+    async def close(self):
+        self.closed = True
+
+    def on(self, *_args, **_kwargs):
+        pass
+
+
+def test_get_context_rebuilds_after_browser_crash(tmp_path, monkeypatch):
+    # 死 context：cookies() 探活失败 → 必须丢弃并重建，而不是继续返回
+    dead = _FakeCtx(alive=False)
+    fresh = _FakeCtx(alive=True)
+    monkeypatch.setattr(browser_mod, "_context", dead)
+    monkeypatch.setattr(browser_mod, "_playwright", object())  # 跳过真实启动
+    monkeypatch.setattr(browser_mod, "_claim_profile", lambda: tmp_path)
+    monkeypatch.setattr(browser_mod, "_launch_persistent",
+                        lambda _p: _async_return(fresh))
+    monkeypatch.setattr(browser_mod, "load_cookies", lambda _c: _async_return(None))
+
+    got = asyncio.run(browser_mod.get_context())
+    assert got is fresh
+    assert dead.closed          # 死 context 已被关闭清理
+
+
+def test_get_context_reuses_live_context(tmp_path, monkeypatch):
+    # 活 context：探活成功 → 直接复用，不重启
+    live = _FakeCtx(alive=True)
+
+    def _fail_launch(_p):
+        raise AssertionError("活 context 不应触发重启")
+
+    monkeypatch.setattr(browser_mod, "_context", live)
+    monkeypatch.setattr(browser_mod, "_launch_persistent", _fail_launch)
+
+    got = asyncio.run(browser_mod.get_context())
+    assert got is live
+    assert not live.closed

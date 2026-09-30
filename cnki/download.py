@@ -266,7 +266,10 @@ async def download_paper(
             "message": f"下载失败: {e}",
         }
     finally:
-        await page.close()
+        try:
+            await page.close()
+        except Exception:
+            pass  # Chrome 中途崩溃时 page 已失效，勿遮蔽真实错误
 
 
 async def batch_download(

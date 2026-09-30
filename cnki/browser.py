@@ -309,18 +309,35 @@ async def _launch_persistent(profile: Path) -> BrowserContext:
 
 # ─── 公共入口 ────────────────────────────────────────────────
 
+async def _discard_dead_context() -> None:
+    """丢弃崩溃/断开的死 context。
+
+    不释放 profile 锁：同一进程随后重建时 _claim_profile() 会复用
+    _active_profile，继续使用原 profile（保留登录态）。
+    """
+    global _context
+    ctx, _context = _context, None
+    if ctx is not None:
+        try:
+            await asyncio.wait_for(ctx.close(), timeout=5)
+        except Exception:
+            pass
+
+
 async def get_context() -> BrowserContext:
     """获取（或创建）全局浏览器上下文，启动一次后复用。"""
     global _playwright, _context
 
     async with _lock:
         if _context is not None:
+            # 真实 IPC 探活：.pages 是本地属性（不发协议消息），
+            # Chrome 中途崩溃时死 context 仍"可访问"，必须用会往返浏览器的调用。
             try:
-                # .pages 是属性（非协程），可正常访问即视为上下文有效
-                _ = _context.pages
+                await asyncio.wait_for(_context.cookies(), timeout=5)
                 return _context
             except Exception:
-                _context = None
+                # 崩溃/断开 → 丢弃死 context，走下方重建
+                await _discard_dead_context()
 
         if _playwright is None:
             _playwright = await async_playwright().start()
